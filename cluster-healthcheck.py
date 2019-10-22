@@ -45,10 +45,12 @@ mm_login_response = http_session.get(mm_login_url, params={'username': mm_user, 
 
 #print("Login Response: " + mm_login_response.text)
 
-# Login to store cookie
+# Login to store UIDARUBA
 if mm_login_response:
+    #session_param_UIDARUBA # Need to complete this
     print("Logged in sucessfully with status code ", end = '')
     print(mm_login_response.status_code, end = '')
+    
     print(".")
 else:
     print("Login failed with status code ", end = '')
