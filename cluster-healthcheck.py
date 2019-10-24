@@ -17,6 +17,31 @@ import argparse
 import getpass
 import requests
 
+# Pass this a string of device type
+# Returns True if it is a controller, False if not.
+# Need to update for 9000 series controllers
+def is_controller(device_type):
+    if "mc-va" in device_type.lower():
+        return True
+    elif "a70" in device_type.lower():
+        return True
+    elif "a72" in device_type.lower():
+        return True
+    else:
+        return False
+
+# Pass this a list of devices
+# Returns list of [{Controller Name, Controller MAC}]
+def extract_controllers(devices):
+    controllers = []
+    
+    for i in devices:
+        if is_controller(i["type"]):
+            controllers.append({"name": i["name"], "mac": i["mac"]})
+    
+    return controllers
+
+
 # Obtain arguments
 parser = argparse.ArgumentParser(description="Aruba OS 8 Cluster Health Check Tool")
 parser.add_argument("-m", "--mm", required=True, help="Mobility Master IP / Hostname")
@@ -47,30 +72,85 @@ mm_login_response = http_session.get(mm_login_url, params={'username': mm_user, 
 
 # Login to store UIDARUBA
 if mm_login_response:
-    #session_param_UIDARUBA # Need to complete this
+    http_session_arubauid =  mm_login_response.json()['_global_result']['UIDARUBA']
     print("Logged in sucessfully with status code ", end = '')
     print(mm_login_response.status_code, end = '')
-    
     print(".")
+    print("Received UIDARUBA: " + http_session_arubauid)
 else:
     print("Login failed with status code ", end = '')
     print(mm_login_response.status_code, end = '')
     print(". Exiting...")
     exit
 
-# Cookie check
-print("Cookie Monster checking for cookies... " +  http_session.cookies.value)
-
 # Pull configuration node hierarchy
-mm_config_node_hierarchy_response = http_session.get(mm_config_node_hierarchy_url)
+mm_config_node_hierarchy_response = http_session.get(mm_config_node_hierarchy_url, params={'UIDARUBA': http_session_arubauid})
 
 if mm_config_node_hierarchy_response:
     print("Successfully received Configuration Node Hierarchy with status code ", end = '')
     print(mm_config_node_hierarchy_response.status_code, end = '')
     print(".")
     print(mm_config_node_hierarchy_response.text)
+    mm_config_node_hierarchy = mm_config_node_hierarchy_response.json()
 else:
     print("Failed to get Configuration Node Hierarchy ", end = '')
     print(mm_config_node_hierarchy_response.status_code, end = '')
     print(". Exiting...")
     exit
+
+# Recurses through configuration node hierarchy JSON to search for controllers.
+# Returns dict of configuration path containing controllers, and list of 
+# controller names and MAC addresses.
+def get_controllers(config_node, parent_config_path=""):
+    controllers = {}
+
+    if isinstance(config_node, dict):
+
+        # Getting correct string to describe the current config path (path)
+        if config_node["type"] == "root":
+            current_config_path = "/"
+        elif config_node["type"] == "group":
+            if parent_config_path == "/":
+                current_config_path = "/" + config_node["name"]
+            else:
+                current_config_path = parent_config_path + "/" + config_node["name"]
+
+        # If there are devices on this node, extract controllers
+        if(config_node["devices"] != None):
+            current_node_controllers = extract_controllers(config_node["devices"])
+
+            # Check for empty lists, and don't save these.
+            if(len(current_node_controllers) > 0):
+                controllers[current_config_path] = current_node_controllers
+
+        # Call self to recurse if child nodes exist
+        if (config_node["childnodes"] != None):
+            controllers.update(get_controllers(config_node["childnodes"], current_config_path))
+
+    # Some nodes are a list, and need to be iterated through
+    elif isinstance(config_node, list):
+        for i in config_node:
+
+            if i["type"] == "root":
+                i_current_config_path = "/"
+            elif i["type"] == "group":
+                if parent_config_path == "/":
+                    i_current_config_path = "/" + i["name"]
+                else:
+                    i_current_config_path = parent_config_path + "/" + i["name"]
+
+            # If there are devices on this node, extract controllers
+            if(i["devices"] != None):
+                i_current_node_controllers = extract_controllers(i["devices"])
+
+                # Check for empty lists, and don't save these.
+                if(len(i_current_node_controllers) > 0):
+                    controllers[i_current_config_path] = i_current_node_controllers
+
+            # Call self to recurse if child nodes exist
+            if (i["childnodes"] != None):
+                controllers.update(get_controllers(i["childnodes"], i_current_config_path))
+
+    return controllers
+
+print(get_controllers(mm_config_node_hierarchy))
