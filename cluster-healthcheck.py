@@ -266,11 +266,14 @@ for k,v in controller_clusters.items():
     print(":", k)
 
     for i in v:
-        print("Recommendations for " + i["controller-name"] + " (" + i["controller-mac"] + " at " + i["controller-path"])
+        print("Recommendations for " + i["controller-name"] + " at " + i["controller-path"])
 
         problem_vlan_lines = config_check_vlan(i["controller-committed-config"], i["controller-ip-vlan"])
         if len(problem_vlan_lines) != 0:
-            print("The following VLAN configurations should be moved up to the parent configuration node or higher:")
+            print("The following VLAN configurations should be moved to the parent configuration node \"", end="")
+            print('#'.join(i["controller-path"].rsplit('/', 1)).split('#')[0], end="")
+            print("\" or higher:")
+
             for p in problem_vlan_lines:
                 print("-", p)
 
