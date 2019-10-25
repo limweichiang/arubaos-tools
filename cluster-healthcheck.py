@@ -17,7 +17,8 @@ import argparse
 import getpass
 import requests
 import sys
-import urllib3
+import urllib3 # For disabling SSL warnings
+import re
 
 # Pass this a string of device type
 # Returns True if it is a controller, False if not.
@@ -124,6 +125,7 @@ mm_config_node_hierarchy_url = mm_base_url + "/v1/configuration/object/node_hier
 mm_cluster_membership_url = mm_base_url + "/v1/configuration/object/cluster_membership_profile"
 mm_controller_ip_vlan_url = mm_base_url + "v1/configuration/object/ctrl_ip"
 mm_controller_intf_vlan_url = mm_base_url + "v1/configuration/object/int_vlan"
+mm_show_command_url = mm_base_url + "/v1/configuration/showcommand"
 
 # Initiate login with authentication, and persistently store cookies
 http_session = requests.Session()
@@ -188,6 +190,7 @@ for k,v in controller_clusters.items():
     for i in v:
         mm_controller_ip_vlan_response = http_session.get(mm_controller_ip_vlan_url, params={'UIDARUBA': http_session_arubauid, 'config_path' : i["controller-path"]})
          
+        # Get controller IP VLAN for each controller in a cluster
         if (mm_controller_ip_vlan_response):
             controller_ip_vlan = mm_controller_ip_vlan_response.json()
 
@@ -205,6 +208,17 @@ for k,v in controller_clusters.items():
                             if (j.get("id") == i["controller-ip-vlan"]) and (j.get("int_vlan_ip") != None):
                                 i["controller-ip"] = j["int_vlan_ip"]["ipaddr"]
 
+        # While we're here, might as well grab configuration committed as well
+        mm_show_command_str = "show configuration committed " + i["controller-path"]
+        mm_show_command_response = http_session.get(mm_show_command_url, params={"json": "1", "command": mm_show_command_str, 'UIDARUBA': http_session_arubauid})
+
+        if (mm_show_command_response):
+            mm_show_command = mm_show_command_response.json()
+            i["controller-committed-config"] = mm_show_command["_data"][0].replace(" \n", "\n")
+
+            # WIP Need to break config into dict
+            #i["controller-committed-config-dict"] = mm_show_command["_data"][0]
+
 print("")               
 print("Controller Clusters Found")
 print("=========================")
@@ -220,4 +234,44 @@ for k,v in controller_clusters.items():
         print("-- ", end="")
         print(i["controller-name"] + " (MAC: " + i["controller-mac"] + ") with IP address " + i["controller-ip"] + " at " + i["controller-path"])
     
+    print("")
+
+print("")               
+print("Controller Recommendations")
+print("==========================")
+print("")
+
+
+def config_check_vlan(config, controller_ip_vlan):
+    vlan_lines = []
+    for l in config.split("\n"):
+        if re.match("^vlan\s[0-9]{1,4}$", l):
+            #print("controller IP check (config split)", type(l.split(' ')[1]), )
+            #print("controller IP check (function parameter)", type(str(controller_ip_vlan)))
+            if l.split(' ')[1] != str(controller_ip_vlan):
+                vlan_lines.append(l)
+            #print("vlan <id> match:", l)
+        elif re.match("^vlan-name\s[a-zA-Z0-9\-\_]*$", l):
+            #print("vlan-name <name> match:", l)
+            vlan_lines.append(l)
+        elif re.match("^vlan\s[a-zA-Z0-9\-\_]*\s[0-9]{1,4}$", l):
+            #print("vlan <name> <id> match:", l)
+            vlan_lines.append(l)
+    return vlan_lines
+
+cluster_count = 0
+for k,v in controller_clusters.items():
+    cluster_count += 1
+    print("Cluster", cluster_count, end='')
+    print(":", k)
+
+    for i in v:
+        print("Recommendations for " + i["controller-name"] + " (" + i["controller-mac"] + " at " + i["controller-path"])
+
+        problem_vlan_lines = config_check_vlan(i["controller-committed-config"], i["controller-ip-vlan"])
+        if len(problem_vlan_lines) != 0:
+            print("The following VLAN configurations should be moved up to the parent configuration node or higher:")
+            for p in problem_vlan_lines:
+                print("-", p)
+
     print("")
