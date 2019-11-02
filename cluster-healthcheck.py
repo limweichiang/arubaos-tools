@@ -137,7 +137,7 @@ def print_subconfig_list(subconfig_list, prepend_str=""):
     for i in subconfig_list:
         print(prepend_str + i)
 
-## Checks for and returns VLAN definitions other than that of the Controller IP VLAN
+## Checks for and returns True if VLANs other than that of the Controller IP VLAN is found.
 def config_check_vlan(config_line, controller_ip_vlan):
     if re.match("^vlan\s[0-9]{1,4}$", config_line):
         if config_line.split(' ')[1] != str(controller_ip_vlan):
@@ -149,7 +149,7 @@ def config_check_vlan(config_line, controller_ip_vlan):
     else:
         return False
 
-## Checks for and returns lines definitions that match a specific string
+## Checks for and returns True if config contains match_str
 def config_check(config_line, match_str):
     re_pattern = "^" + match_str + "\s"
 
