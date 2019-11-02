@@ -23,7 +23,7 @@ The tool will recommend any identified configuration lines to be moved up to the
 * Python 3 (Developed with Python 3.6.3)
 
 ### Usage
-'''
+```
 $ python3 cluster-healthcheck.py -h
 usage: cluster-healthcheck.py [-h] -m MM -u USER [-i]
 
@@ -42,4 +42,4 @@ This software is licensed under the Apache License Version 2.0. It is
 distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
 either express or implied.
 $ 
-'''
+```
