@@ -1,7 +1,7 @@
 # aos8-tools
 ## Aruba OS 8 Cluster Health Check Tool
 ### Objective
-This tool identifies inappropriate configurations on controller cluster members, which could lead to inconsistent controller cluster tates. Checks are performed for the following configuration types, which generally should not reside directly on a cluster member configuration:
+This tool identifies inappropriate configurations on controller cluster members, which could lead to inconsistent controller cluster states. Checks are performed for the following configuration types, which generally should not reside directly on a cluster member configuration:
 * vlan
 * ap-group
 * wlan
