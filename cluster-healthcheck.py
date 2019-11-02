@@ -100,6 +100,64 @@ def get_controllers(config_node, parent_config_path=""):
 
     return controllers
 
+# Create a dict of config (key), with list of subsconfig (value) if available. Example:
+# 
+# Original:
+# interface gigabitethernet 0/0/0
+#     description GE0/0/0
+#     switchport mode trunk
+#     no spanning-tree
+#     trusted
+#     trusted vlan 1-4094
+# 
+# Converted:
+# {
+#    'interface gigabitethernet 0/0/0':
+#       ['description GE0/0/0', 'switchport mode trunk', 'no spanning-tree', 'trusted', 'trusted vlan 1-4094']
+#  }
+def config_to_dict(config):
+    config_dict = {}
+    subconfig_parent = ""
+
+    for l in config.split('\n'):
+        if l == "":
+            pass
+        elif re.match("^\S", l):
+            config_dict[l] = []
+            subconfig_parent = l
+        elif re.match("^\s*\S*", l):
+            config_dict[subconfig_parent].append(l.lstrip())
+        else:
+            pass
+
+    return config_dict
+
+# Prints each line of a subconfig, prepended with a string for formatting
+def print_subconfig_list(subconfig_list, prepend_str=""):
+    for i in subconfig_list:
+        print(prepend_str + i)
+
+## Checks for and returns VLAN definitions other than that of the Controller IP VLAN
+def config_check_vlan(config_line, controller_ip_vlan):
+    if re.match("^vlan\s[0-9]{1,4}$", config_line):
+        if config_line.split(' ')[1] != str(controller_ip_vlan):
+            return True
+    elif re.match("^vlan-name\s[a-zA-Z0-9\-\_]*$", config_line):
+        return True
+    elif re.match("^vlan\s[a-zA-Z0-9\-\_]*\s[0-9]{1,4}$", config_line):
+        return True
+    else:
+        return False
+
+## Checks for and returns lines definitions that match a specific string
+def config_check(config_line, match_str):
+    re_pattern = "^" + match_str + "\s"
+
+    if re.match(re_pattern, config_line):
+        return True
+    else:
+        return False
+
 # Obtain arguments
 parser = argparse.ArgumentParser(description="Aruba OS 8 Cluster Health Check Tool")
 parser.add_argument("-m", "--mm", required=True, help="Mobility Master IP / Hostname")
@@ -181,9 +239,9 @@ for k,v in controllers.items():
 
                 if(controller_clusters.get(cluster_group) == None):
                     controller_clusters[cluster_group] = []
-                    controller_clusters[cluster_group].append({"controller-path": controller_path, "controller-mac": i["mac"], "controller-name": i["name"]})
+                    controller_clusters[cluster_group].append({"controller-path": controller_path, "controller-parent-path": k, "controller-mac": i["mac"], "controller-name": i["name"]})
                 else:
-                    controller_clusters[cluster_group].append({"controller-path": controller_path, "controller-mac": i["mac"], "controller-name": i["name"]})
+                    controller_clusters[cluster_group].append({"controller-path": controller_path, "controller-parent-path": k, "controller-mac": i["mac"], "controller-name": i["name"]})
 
 # Append controller IP VLAN and IP address to list of cluster controllers.
 for k,v in controller_clusters.items():
@@ -217,7 +275,7 @@ for k,v in controller_clusters.items():
             i["controller-committed-config"] = mm_show_command["_data"][0].replace(" \n", "\n")
 
             # WIP Need to break config into dict
-            #i["controller-committed-config-dict"] = mm_show_command["_data"][0]
+            i["controller-committed-config-dict"] = config_to_dict(i["controller-committed-config"])
 
 print("")               
 print("Controller Clusters Found")
@@ -236,45 +294,213 @@ for k,v in controller_clusters.items():
     
     print("")
 
-print("")               
-print("Controller Recommendations")
-print("==========================")
-print("")
-
-
-def config_check_vlan(config, controller_ip_vlan):
-    vlan_lines = []
-    for l in config.split("\n"):
-        if re.match("^vlan\s[0-9]{1,4}$", l):
-            #print("controller IP check (config split)", type(l.split(' ')[1]), )
-            #print("controller IP check (function parameter)", type(str(controller_ip_vlan)))
-            if l.split(' ')[1] != str(controller_ip_vlan):
-                vlan_lines.append(l)
-            #print("vlan <id> match:", l)
-        elif re.match("^vlan-name\s[a-zA-Z0-9\-\_]*$", l):
-            #print("vlan-name <name> match:", l)
-            vlan_lines.append(l)
-        elif re.match("^vlan\s[a-zA-Z0-9\-\_]*\s[0-9]{1,4}$", l):
-            #print("vlan <name> <id> match:", l)
-            vlan_lines.append(l)
-    return vlan_lines
-
-cluster_count = 0
+# Config checking Loop
 for k,v in controller_clusters.items():
-    cluster_count += 1
-    print("Cluster", cluster_count, end='')
-    print(":", k)
-
     for i in v:
-        print("Recommendations for " + i["controller-name"] + " at " + i["controller-path"])
+        # Create a copy, we may want to eliminate checked configurations
+        target_controller_config = i["controller-committed-config-dict"]
 
-        problem_vlan_lines = config_check_vlan(i["controller-committed-config"], i["controller-ip-vlan"])
-        if len(problem_vlan_lines) != 0:
-            print("The following VLAN configurations should be moved to the parent configuration node \"", end="")
-            print('#'.join(i["controller-path"].rsplit('/', 1)).split('#')[0], end="")
-            print("\" or higher:")
+        ### List of variables used for each check/warn combo
+        problem = {}
+        problem["vlans"] = {}
+        problem["ap-group"] = {}
+        problem["wlan"] = {}
+        problem["aaa"] = {}
+        problem["rf"] = {}
+        problem["ap"] = {}
+        problem["ids"] = {}
+        problem["acl"] = {}
+        problem["user"] = {}
+        problem["netdestination"] = {}
+        problem["netservice"] = {}
+        problem["netdestination6"] = {}
+        problem["timerange"] = {}
+        problem["ifmap"] = {}
 
-            for p in problem_vlan_lines:
-                print("-", p)
+        ### Controller configs and subconfigs are examined line-by-line within this loop. All checks to be implemented here. ###
+        for config_k, config_v in target_controller_config.items():
 
-    print("")
+            # Identify VLANs other than controller IP VLAN
+            if config_check_vlan(config_k, i["controller-ip-vlan"]):
+                problem["vlans"][config_k] = config_v
+
+            # Identify AP Group configs
+            elif config_check(config_k, "ap-group"):
+                problem["ap-group"][config_k] = config_v
+
+            # Identify WLAN configs
+            elif config_check(config_k, "wlan"):
+                problem["wlan"][config_k] = config_v
+                
+            # Identify AAA configs
+            elif config_check(config_k, "aaa"):
+                problem["aaa"][config_k] = config_v
+
+            # Identify RF configs
+            elif config_check(config_k, "rf"):
+                problem["rf"][config_k] = config_v
+
+            # Identify AP configs
+            elif config_check(config_k, "ap"):
+                problem["ap"][config_k] = config_v
+
+            # Identify IDS configs
+            elif config_check(config_k, "ids"):
+                problem["ids"][config_k] = config_v
+
+            # Identify ACL configs
+            elif config_check(config_k, "ip access-list"):
+                problem["acl"][config_k] = config_v
+
+            # Identify User Role configs
+            elif config_check(config_k, "user-role"):
+                problem["user"][config_k] = config_v
+            
+            # Identify Net Destination configs
+            elif config_check(config_k, "netdestination"):
+                problem["netdestination"][config_k] = config_v
+
+            # Identify Net Service configs
+            elif config_check(config_k, "netservice"):
+                problem["netservice"][config_k] = config_v
+
+            # Identify Net Destination IPv6 configs
+            elif config_check(config_k, "netdestination6"):
+                problem["netdestination6"][config_k] = config_v
+
+            # Identify Time Range configs
+            elif config_check(config_k, "time-range"):
+                problem["timerange"][config_k] = config_v
+
+            # Identify IF Map configs
+            elif config_check(config_k, "ifmap"):
+                problem["ifmap"][config_k] = config_v
+
+        ### Controller config issues are flagged out here ###
+        recommend_title_str = "Recommendations for " + i["controller-name"] + " in cluster " + k + " at " + i["controller-path"]
+        print(recommend_title_str)
+        print('='*len(recommend_title_str) + '\n')
+
+        if len(problem["vlans"]) > 0:
+            print("The following VLAN configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for vlan_k, vlan_v in problem["vlans"].items():
+                print("-", vlan_k)
+            print("")
+
+        if len(problem["ap-group"]) > 0:
+            print("The following AP Group configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for apg_k, apg_v in problem["ap-group"].items():
+                print("-", apg_k)
+                if len(apg_v) > 0:
+                    print_subconfig_list(apg_v, "    ")
+            print("")
+
+        if len(problem["wlan"]) > 0:
+            print("The following WLAN configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for wlan_k, wlan_v in problem["wlan"].items():
+                print("-", wlan_k)
+                if len(wlan_v) > 0:
+                    print_subconfig_list(wlan_v, "    ")
+            print("")
+
+        if len(problem["aaa"]) > 0:
+            print("The following AAA configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for aaa_k, aaa_v in problem["aaa"].items():
+                print("-", aaa_k)
+                if len(aaa_v) > 0:
+                    print_subconfig_list(aaa_v, "    ")
+            print("")
+
+        if len(problem["rf"]) > 0:
+            print("The following RF configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for rf_k, rf_v in problem["rf"].items():
+                print("-", rf_k)
+                if len(rf_v) > 0:
+                    print_subconfig_list(rf_v, "    ")
+            print("")
+
+        if len(problem["ap"]) > 0:
+            print("The following AP configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for ap_k, ap_v in problem["ap"].items():
+                print("-", ap_k)
+                if len(ap_v) > 0:
+                    print_subconfig_list(ap_v, "    ")
+            print("")
+
+        if len(problem["ids"]) > 0:
+            print("The following WIDS configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for ids_k, ids_v in problem["ids"].items():
+                print("-", ids_k)
+                if len(ids_v) > 0:
+                    print_subconfig_list(ids_v, "    ")
+            print("")
+
+        if len(problem["acl"]) > 0:
+            print("The following ACL configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for acl_k, acl_v in problem["acl"].items():
+                print("-", acl_k)
+                if len(acl_v) > 0:
+                    print_subconfig_list(acl_v, "    ")
+            print("")
+
+        if len(problem["user"]) > 0:
+            print("The following User Role configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for user_k, user_v in problem["user"].items():
+                print("-", user_k)
+                if len(user_v) > 0:
+                    print_subconfig_list(user_v, "    ")
+            print("")
+
+        if len(problem["netdestination"]) > 0:
+            print("The following Net Destination configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for netdestination_k, netdestination_v in problem["netdestination"].items():
+                print("-", netdestination_k)
+                if len(netdestination_v) > 0:
+                    print_subconfig_list(netdestination_v, "    ")
+            print("")
+
+        if len(problem["netservice"]) > 0:
+            print("The following Net Service configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for netservice_k, netservice_v in problem["netservice"].items():
+                print("-", netservice_k)
+                if len(netservice_v) > 0:
+                    print_subconfig_list(netservice_v, "    ")
+            print("")
+
+        if len(problem["netdestination6"]) > 0:
+            print("The following Net Destination IPv6 configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for netdestination6_k, netdestination6_v in problem["netdestination6"].items():
+                print("-", netdestination6_k)
+                if len(netdestination6_v) > 0:
+                    print_subconfig_list(netdestination6_v, "    ")
+            print("")
+
+        if len(problem["timerange"]) > 0:
+            print("The following Time Range configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for timerange_k, timerange_v in problem["timerange"].items():
+                print("-", timerange_k)
+                if len(timerange_v) > 0:
+                    print_subconfig_list(timerange_v, "    ")
+            print("")
+
+        if len(problem["ifmap"]) > 0:
+            print("The following IF Map configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+
+            for ifmap_k, ifmap_v in problem["ifmap"].items():
+                print("-", ifmap_k)
+                if len(ifmap_v) > 0:
+                    print_subconfig_list(ifmap_v, "    ")
+            print("")
