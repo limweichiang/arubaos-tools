@@ -159,7 +159,9 @@ def config_check(config_line, match_str):
         return False
 
 # Obtain arguments
-parser = argparse.ArgumentParser(description="Aruba OS 8 Cluster Health Check Tool")
+parser = argparse.ArgumentParser(
+    description="Aruba OS 8 Cluster Health Check Tool - This tool identifies inappropriate configurations on controller cluster members. Checks are performed for vlan, ap-group, wlan, aaa, rf, ap, ids, ip access-list, user-role, netdestination, netservice, netdestination6, time-range & ifmap configuration types.", 
+    epilog="This software is licensed under the Apache License Version 2.0. It is distributed on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.")
 parser.add_argument("-m", "--mm", required=True, help="Mobility Master IP / Hostname")
 parser.add_argument("-u", "--user", required=True, help="Mobility Master admin user name")
 parser.add_argument("-i", "--insecure", required=False, action="store_true", help="Allow insecure SSL cert / Skip cert verification")
