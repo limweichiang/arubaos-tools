@@ -1,6 +1,11 @@
 # Aruba OS 8 Cluster Health Check Tool
 ## Objective
-This tool identifies inappropriate configurations on controller cluster members, which could lead to inconsistent controller cluster states. Checks are performed for the following configuration types, which generally should not reside directly on a cluster member configuration:
+This tool identifies inappropriate configurations on controller cluster members, which could lead to inconsistent  cluster states. For exanmple, the following issues would be detected:
+* VLAN configuration that exists on some cluster members, but not others - Results in profile errors, traffic blackhole.
+* WLAN / Virtual AP configuration that exists on some clusters, but not others - APs using controller with WLAN / Virtual AP configuration as A-AAC will broadcast SSID, others will not.
+* AAA configuration manually defined on cluster members - Manual config leads on inconsistent config on cluster members due to typos; User authentication fails on some members but succeed on others.
+
+Checks are performed for the following configuration types, which generally should not reside directly on a cluster member configuration:
 * vlan
 * ap-group
 * wlan
