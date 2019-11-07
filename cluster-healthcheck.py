@@ -564,16 +564,16 @@ for k,v in controller_clusters.items():
                 problem["profile-errors"] = controller_ssh.aos8execute("show profile-errors")
             controller_ssh.close()
 
-        if len(problem["config-failure"]) > 0:
-            print("Configuration failure found on this controller. Call TAC with results of \"show configuration failure\".")
-            print_subconfig_list(problem["config-failure"].split("\n"), "    ")
-        else:
-            print("No configuration failure found using \"show configuration failure\".")
-        print("")
+            if len(problem["config-failure"]) > 0:
+                print("Configuration failure found on this controller. Call TAC with results of \"show configuration failure\".")
+                print_subconfig_list(problem["config-failure"].split("\n"), "    ")
+            else:
+                print("No configuration failure found using \"show configuration failure\".")
+            print("")
 
-        if len(problem["profile-errors"]) > 0:
-            print("Profile errors found on this controller. Please correct the following errors.")
-            print_subconfig_list(problem["profile-errors"].split("\n"), "    ")
-        else:
-            print("No profile errors found using \"show profile-errors\".")
+            if len(problem["profile-errors"]) > 0:
+                print("Profile errors found on this controller. Please correct the following errors.")
+                print_subconfig_list(problem["profile-errors"].split("\n"), "    ")
+            else:
+                print("No profile errors found using \"show profile-errors\".")
         print("")
