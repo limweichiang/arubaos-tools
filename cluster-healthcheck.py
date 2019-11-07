@@ -19,6 +19,9 @@ import requests
 import sys
 import urllib3 # For disabling SSL warnings
 import re
+import modules.aos8 as aos8
+import socket
+import paramiko
 
 # Pass this a string of device type
 # Returns True if it is a controller, False if not.
@@ -172,8 +175,15 @@ mm_host = args.mm.strip()
 mm_user = args.user.strip()
 mm_secure_login = True
 if args.insecure: 
-    mm_secure_login = False
-    urllib3.disable_warnings()
+    print("WARNING! You have used the \"-i\" or \"--insecure\" option; The tool will NOT validate the SSL certicate presented by the Mobility Master.")
+    print("By continuing, your credentials could be compromised by malicious parties.")
+    insecure_login_input = input("Enter 'c' to continue in spite of the security risk, or anything else to exit: ")
+    
+    if insecure_login_input.replace('\n', '').lower() == "c":
+        mm_secure_login = False
+        urllib3.disable_warnings()
+    else:
+        sys.exit()
 
 # Get password
 mm_passwd = getpass.getpass("Password for " + mm_user +": ")
@@ -197,15 +207,15 @@ mm_login_response = http_session.get(mm_login_url, params={'username': mm_user, 
 # Login to store UIDARUBA
 if mm_login_response:
     http_session_arubauid =  mm_login_response.json()['_global_result']['UIDARUBA']
-    print("Logged in sucessfully with status code ", end = '')
+    print("Logged in sucessfully with HTTP status code ", end = '')
     print(mm_login_response.status_code, end = '')
     print(".")
     print("Received UIDARUBA: " + http_session_arubauid)
 else:
-    print("Login failed with status code ", end = '')
+    print("Login failed with HTTP status code ", end = '')
     print(mm_login_response.status_code, end = '')
     print(". Exiting...")
-    exit
+    sys.exit()
 
 # Pull configuration node hierarchy
 mm_config_node_hierarchy_response = http_session.get(mm_config_node_hierarchy_url, params={'UIDARUBA': http_session_arubauid})
@@ -318,6 +328,8 @@ for k,v in controller_clusters.items():
         problem["netdestination6"] = {}
         problem["timerange"] = {}
         problem["ifmap"] = {}
+        problem["config-failure"] = ""
+        problem["profile-errors"] = ""
 
         ### Controller configs and subconfigs are examined line-by-line within this loop. All checks to be implemented here. ###
         for config_k, config_v in target_controller_config.items():
@@ -377,6 +389,9 @@ for k,v in controller_clusters.items():
             # Identify IF Map configs
             elif config_check(config_k, "ifmap"):
                 problem["ifmap"][config_k] = config_v
+
+
+
 
         ### Controller config issues are flagged out here ###
         recommend_title_str = "Recommendations for " + i["controller-name"] + " in cluster " + k + " at " + i["controller-path"]
@@ -506,3 +521,59 @@ for k,v in controller_clusters.items():
                 if len(ifmap_v) > 0:
                     print_subconfig_list(ifmap_v, "    ")
             print("")
+
+        # SSH login to individual controllers to run detailed CLI checks.
+        controller_ssh = aos8.AOS8SSHClient()
+        controller_secure_login = True
+        controller_skip = False
+
+        # Begin Connect: Only 2 tries required with 1 retry allowed if this is not a known SSH host and user wants to ignore security checks.
+        for connect_tries in range(2):
+            try:
+                controller_ssh.aos8connect(i["controller-ip"], mm_user, mm_passwd, secure_login = controller_secure_login)
+                break
+            except paramiko.ssh_exception.SSHException as ssh_e:
+                #Paramiko's exception handling does everything with SSHException which is bonkers.
+                if "not found in known_hosts" in str(ssh_e).lower(): # Catch SSHException for unknown host key.
+                    print("WARNING! " + i["controller-ip"] + " is not a known SSH host. By continuing, your credentials could be compromised by malicious parties.")
+                    cont_input = input("Enter 'c' to continue in spite of the security risk, or anything else to skip SSH checks on this controller: ")
+                    if cont_input.replace('\n', '').lower() == "c":
+                        controller_secure_login = False
+                        continue
+                    else:
+                        print("Skipping SSH checks for controller " + i["controller-ip"] + ".")
+                        controller_skip = True
+                        break
+                elif "authentication failed" in str(ssh_e).lower(): # Catch SSHException for Auth Fail, in spite of an ACTUAL exception existing for Auth Failed
+                    print("Authentication failed. SSH checks expect controller admin credentials (username & password) to be identical to that used for the MM.")
+                    print("Skipping SSH checks for controller " + i["controller-ip"] + ".")
+                    controller_skip = True
+                    break
+            except socket.error as sock_e:
+                print("Cannot connect to " + i["controller-ip"] + ". Skipping SSH checks for this controller.")
+                #print(sock_e)
+                controller_skip = True
+                break
+
+        if controller_skip == False:
+            # Needs more exception handling here.
+            controller_ssh.aos8invoke_shell()
+            problem["config-failure"] = controller_ssh.aos8execute("show configuration failure")
+            
+            if len(controller_ssh.aos8execute("show profile-errors | exclude \"-----,Invalid Profiles,Profile  Error\"")) > 0:
+                problem["profile-errors"] = controller_ssh.aos8execute("show profile-errors")
+            controller_ssh.close()
+
+        if len(problem["config-failure"]) > 0:
+            print("Configuration failure found on this controller. Call TAC with results of \"show configuration failure\".")
+            print_subconfig_list(problem["config-failure"].split("\n"), "    ")
+        else:
+            print("No configuration failure found using \"show configuration failure\".")
+        print("")
+
+        if len(problem["profile-errors"]) > 0:
+            print("Profile errors found on this controller. Please correct the following errors.")
+            print_subconfig_list(problem["profile-errors"].split("\n"), "    ")
+        else:
+            print("No profile errors found using \"show profile-errors\".")
+        print("")
