@@ -25,6 +25,7 @@ The tool will recommend any identified configuration lines to be moved up to the
 
 ## Requirements
 * Python 3 (Developed with Python 3.6.3)
+* Paramiko (Developed with Paramiko 2.6.0)
 
 ## Usage
 ```
