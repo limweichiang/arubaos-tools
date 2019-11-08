@@ -21,7 +21,11 @@ import urllib3 # For disabling SSL warnings
 import re
 import modules.aos8 as aos8
 import socket
-import paramiko
+try:
+    import paramiko
+except:
+    print("Error importing Paramiko module, please install it with \"pip install paramiko\". Quitting...")
+    exit(-1)
 
 # Pass this a string of device type
 # Returns True if it is a controller, False if not.
