@@ -70,8 +70,9 @@ class AOS8SSHClient(paramiko.SSHClient):
         self.aos8execute("no paging")
 
     def aos8close(self):
-        self.shell.close()
-        self.shell = None
+        if self.shell != None:
+            self.shell.close()
+            self.shell = None
         self.close()
 
     def aos8execute(self, command):
