@@ -1,4 +1,4 @@
-# Aruba OS 8 Tools
+# ArubaOS Tools
 ## Overview
 
 This is a collection of tools written for Aruba Networks' Aruba OS 8 WLAN platform. Generally, this tool set is created to:
