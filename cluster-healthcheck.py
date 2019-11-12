@@ -179,9 +179,11 @@ mm_host = args.mm.strip()
 mm_user = args.user.strip()
 mm_secure_login = True
 if args.insecure: 
-    print("WARNING! You have used the \"-i\" or \"--insecure\" option; The tool will NOT validate the SSL certicate presented by the Mobility Master.")
+    print("WARNING! You have used the \"-i\" or \"--insecure\" option; The tool will NOT validate the following:")
+    print("* SSL certicate presented by the Mobility Master (REST API Calls)")
+    print("* SSH key presented by the Mobility Controllers (SSH CLI Checks)")
     print("By continuing, your credentials could be compromised by malicious parties.")
-    insecure_login_input = input("Enter 'c' to continue in spite of the security risk, or anything else to exit: ")
+    insecure_login_input = input("Enter 'c' to ignore the security risk and continue, or anything else to exit: ")
     
     if insecure_login_input.replace('\n', '').lower() == "c":
         mm_secure_login = False
@@ -528,44 +530,27 @@ for k,v in controller_clusters.items():
 
         # SSH login to individual controllers to run detailed CLI checks.
         controller_ssh = aos8.AOS8SSHClient()
-        controller_secure_login = True
-        controller_skip = False
+        controller_secure_login = mm_secure_login
 
-        # Begin Connect: Only 2 tries required with 1 retry allowed if this is not a known SSH host and user wants to ignore security checks.
-        for connect_tries in range(2):
-            try:
-                controller_ssh.aos8connect(i["controller-ip"], mm_user, mm_passwd, secure_login = controller_secure_login)
-                break
-            except paramiko.ssh_exception.SSHException as ssh_e:
-                #Paramiko's exception handling does everything with SSHException which is bonkers.
-                if "not found in known_hosts" in str(ssh_e).lower(): # Catch SSHException for unknown host key.
-                    print("WARNING! " + i["controller-ip"] + " is not a known SSH host. By continuing, your credentials could be compromised by malicious parties.")
-                    cont_input = input("Enter 'c' to continue in spite of the security risk, or anything else to skip SSH checks on this controller: ")
-                    if cont_input.replace('\n', '').lower() == "c":
-                        controller_secure_login = False
-                        continue
-                    else:
-                        print("Skipping SSH checks for controller " + i["controller-ip"] + ".")
-                        controller_skip = True
-                        break
-                elif "authentication failed" in str(ssh_e).lower(): # Catch SSHException for Auth Fail, in spite of an ACTUAL exception existing for Auth Failed
-                    print("Authentication failed. SSH checks expect controller admin credentials (username & password) to be identical to that used for the MM.")
-                    print("Skipping SSH checks for controller " + i["controller-ip"] + ".")
-                    controller_skip = True
-                    break
-            except socket.error as sock_e:
-                print("Cannot connect to " + i["controller-ip"] + ". Skipping SSH checks for this controller.")
-                #print(sock_e)
-                controller_skip = True
-                break
-
-        if controller_skip == False:
+        try:
+            controller_ssh.aos8connect(i["controller-ip"], mm_user, mm_passwd, secure_login = controller_secure_login)
+        except paramiko.ssh_exception.SSHException as ssh_e:
+            #Paramiko's exception handling does everything with SSHException which is bonkers.
+            if "not found in known_hosts" in str(ssh_e).lower(): # Catch SSHException for unknown host key.
+                print(i["controller-ip"] + " is not a known SSH host, and insecure login is disallowed. Skipping SSH checks for this controller.")
+            elif "authentication failed" in str(ssh_e).lower(): # Catch SSHException for Auth Fail, in spite of an ACTUAL exception existing for Auth Failed
+                print("Authentication failed. SSH checks expect controller admin credentials (username & password) to be identical to that used for the MM.")
+                print("Skipping SSH checks for controller " + i["controller-ip"] + ".")
+        except socket.error as sock_e:
+            print("Cannot connect to " + i["controller-ip"] + ". Skipping SSH checks for this controller.")
+        else:
             # Needs more exception handling here.
             controller_ssh.aos8invoke_shell()
             problem["config-failure"] = controller_ssh.aos8execute("show configuration failure")
             
             if len(controller_ssh.aos8execute("show profile-errors | exclude \"-----,Invalid Profiles,Profile  Error\"")) > 0:
                 problem["profile-errors"] = controller_ssh.aos8execute("show profile-errors")
+            
             controller_ssh.close()
 
             if len(problem["config-failure"]) > 0:
