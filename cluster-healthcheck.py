@@ -144,6 +144,11 @@ def print_subconfig_list(subconfig_list, prepend_str=""):
     for i in subconfig_list:
         print(prepend_str + i)
 
+# Prints each line of a subconfig, prepended with a string for formatting
+def print_subconfig_dict(subconfig_dict, prepend_str=""):
+    for k,v in subconfig_dict.items():
+        print(prepend_str + k + ": " + v)
+
 ## Checks for and returns True if VLANs other than that of the Controller IP VLAN is found.
 def config_check_vlan(config_line, controller_ip_vlan):
     if re.match("^vlan\s[0-9]{1,4}$", config_line):
@@ -320,6 +325,7 @@ for k,v in controller_clusters.items():
 
         ### List of variables used for each check/warn combo
         problem = {}
+        problem["config-exists"] = False
         problem["vlans"] = {}
         problem["ap-group"] = {}
         problem["wlan"] = {}
@@ -334,8 +340,9 @@ for k,v in controller_clusters.items():
         problem["netdestination6"] = {}
         problem["timerange"] = {}
         problem["ifmap"] = {}
-        problem["config-failure"] = ""
-        problem["profile-errors"] = ""
+        problem["ssh-config-failure"] = ""
+        problem["ssh-profile-errors"] = ""
+        problem["ssh-group-membership"] = {}
 
         ### Controller configs and subconfigs are examined line-by-line within this loop. All checks to be implemented here. ###
         for config_k, config_v in target_controller_config.items():
@@ -343,58 +350,72 @@ for k,v in controller_clusters.items():
             # Identify VLANs other than controller IP VLAN
             if config_check_vlan(config_k, i["controller-ip-vlan"]):
                 problem["vlans"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify AP Group configs
             elif config_check(config_k, "ap-group"):
                 problem["ap-group"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify WLAN configs
             elif config_check(config_k, "wlan"):
                 problem["wlan"][config_k] = config_v
+                problem["config-exists"] = True
                 
             # Identify AAA configs
             elif config_check(config_k, "aaa"):
                 problem["aaa"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify RF configs
             elif config_check(config_k, "rf"):
                 problem["rf"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify AP configs
             elif config_check(config_k, "ap"):
                 problem["ap"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify IDS configs
             elif config_check(config_k, "ids"):
                 problem["ids"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify ACL configs
             elif config_check(config_k, "ip access-list"):
                 problem["acl"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify User Role configs
             elif config_check(config_k, "user-role"):
                 problem["user"][config_k] = config_v
+                problem["config-exists"] = True
             
             # Identify Net Destination configs
             elif config_check(config_k, "netdestination"):
                 problem["netdestination"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify Net Service configs
             elif config_check(config_k, "netservice"):
                 problem["netservice"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify Net Destination IPv6 configs
             elif config_check(config_k, "netdestination6"):
                 problem["netdestination6"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify Time Range configs
             elif config_check(config_k, "time-range"):
                 problem["timerange"][config_k] = config_v
+                problem["config-exists"] = True
 
             # Identify IF Map configs
             elif config_check(config_k, "ifmap"):
                 problem["ifmap"][config_k] = config_v
+                problem["config-exists"] = True
 
 
 
@@ -404,128 +425,132 @@ for k,v in controller_clusters.items():
         print(recommend_title_str)
         print('='*len(recommend_title_str) + '\n')
 
-        if len(problem["vlans"]) > 0:
-            print("The following VLAN configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+        if problem["config-exists"] == True:
+            if len(problem["vlans"]) > 0:
+                print("MM Config Check: The following VLAN configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for vlan_k, vlan_v in problem["vlans"].items():
-                print("-", vlan_k)
-            print("")
+                for vlan_k, vlan_v in problem["vlans"].items():
+                    print("-", vlan_k)
+                print("")
 
-        if len(problem["ap-group"]) > 0:
-            print("The following AP Group configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["ap-group"]) > 0:
+                print("MM Config Check: The following AP Group configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for apg_k, apg_v in problem["ap-group"].items():
-                print("-", apg_k)
-                if len(apg_v) > 0:
-                    print_subconfig_list(apg_v, "    ")
-            print("")
+                for apg_k, apg_v in problem["ap-group"].items():
+                    print("-", apg_k)
+                    if len(apg_v) > 0:
+                        print_subconfig_list(apg_v, "    ")
+                print("")
 
-        if len(problem["wlan"]) > 0:
-            print("The following WLAN configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["wlan"]) > 0:
+                print("MM Config Check: The following WLAN configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for wlan_k, wlan_v in problem["wlan"].items():
-                print("-", wlan_k)
-                if len(wlan_v) > 0:
-                    print_subconfig_list(wlan_v, "    ")
-            print("")
+                for wlan_k, wlan_v in problem["wlan"].items():
+                    print("-", wlan_k)
+                    if len(wlan_v) > 0:
+                        print_subconfig_list(wlan_v, "    ")
+                print("")
 
-        if len(problem["aaa"]) > 0:
-            print("The following AAA configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["aaa"]) > 0:
+                print("MM Config Check: The following AAA configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for aaa_k, aaa_v in problem["aaa"].items():
-                print("-", aaa_k)
-                if len(aaa_v) > 0:
-                    print_subconfig_list(aaa_v, "    ")
-            print("")
+                for aaa_k, aaa_v in problem["aaa"].items():
+                    print("-", aaa_k)
+                    if len(aaa_v) > 0:
+                        print_subconfig_list(aaa_v, "    ")
+                print("")
 
-        if len(problem["rf"]) > 0:
-            print("The following RF configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["rf"]) > 0:
+                print("MM Config Check: The following RF configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for rf_k, rf_v in problem["rf"].items():
-                print("-", rf_k)
-                if len(rf_v) > 0:
-                    print_subconfig_list(rf_v, "    ")
-            print("")
+                for rf_k, rf_v in problem["rf"].items():
+                    print("-", rf_k)
+                    if len(rf_v) > 0:
+                        print_subconfig_list(rf_v, "    ")
+                print("")
 
-        if len(problem["ap"]) > 0:
-            print("The following AP configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["ap"]) > 0:
+                print("MM Config Check: The following AP configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for ap_k, ap_v in problem["ap"].items():
-                print("-", ap_k)
-                if len(ap_v) > 0:
-                    print_subconfig_list(ap_v, "    ")
-            print("")
+                for ap_k, ap_v in problem["ap"].items():
+                    print("-", ap_k)
+                    if len(ap_v) > 0:
+                        print_subconfig_list(ap_v, "    ")
+                print("")
 
-        if len(problem["ids"]) > 0:
-            print("The following WIDS configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["ids"]) > 0:
+                print("MM Config Check: The following WIDS configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for ids_k, ids_v in problem["ids"].items():
-                print("-", ids_k)
-                if len(ids_v) > 0:
-                    print_subconfig_list(ids_v, "    ")
-            print("")
+                for ids_k, ids_v in problem["ids"].items():
+                    print("-", ids_k)
+                    if len(ids_v) > 0:
+                        print_subconfig_list(ids_v, "    ")
+                print("")
 
-        if len(problem["acl"]) > 0:
-            print("The following ACL configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["acl"]) > 0:
+                print("MM Config Check: The following ACL configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for acl_k, acl_v in problem["acl"].items():
-                print("-", acl_k)
-                if len(acl_v) > 0:
-                    print_subconfig_list(acl_v, "    ")
-            print("")
+                for acl_k, acl_v in problem["acl"].items():
+                    print("-", acl_k)
+                    if len(acl_v) > 0:
+                        print_subconfig_list(acl_v, "    ")
+                print("")
 
-        if len(problem["user"]) > 0:
-            print("The following User Role configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["user"]) > 0:
+                print("MM Config Check: The following User Role configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for user_k, user_v in problem["user"].items():
-                print("-", user_k)
-                if len(user_v) > 0:
-                    print_subconfig_list(user_v, "    ")
-            print("")
+                for user_k, user_v in problem["user"].items():
+                    print("-", user_k)
+                    if len(user_v) > 0:
+                        print_subconfig_list(user_v, "    ")
+                print("")
 
-        if len(problem["netdestination"]) > 0:
-            print("The following Net Destination configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["netdestination"]) > 0:
+                print("MM Config Check: The following Net Destination configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for netdestination_k, netdestination_v in problem["netdestination"].items():
-                print("-", netdestination_k)
-                if len(netdestination_v) > 0:
-                    print_subconfig_list(netdestination_v, "    ")
-            print("")
+                for netdestination_k, netdestination_v in problem["netdestination"].items():
+                    print("-", netdestination_k)
+                    if len(netdestination_v) > 0:
+                        print_subconfig_list(netdestination_v, "    ")
+                print("")
 
-        if len(problem["netservice"]) > 0:
-            print("The following Net Service configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["netservice"]) > 0:
+                print("MM Config Check: The following Net Service configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for netservice_k, netservice_v in problem["netservice"].items():
-                print("-", netservice_k)
-                if len(netservice_v) > 0:
-                    print_subconfig_list(netservice_v, "    ")
-            print("")
+                for netservice_k, netservice_v in problem["netservice"].items():
+                    print("-", netservice_k)
+                    if len(netservice_v) > 0:
+                        print_subconfig_list(netservice_v, "    ")
+                print("")
 
-        if len(problem["netdestination6"]) > 0:
-            print("The following Net Destination IPv6 configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["netdestination6"]) > 0:
+                print("MM Config Check: The following Net Destination IPv6 configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for netdestination6_k, netdestination6_v in problem["netdestination6"].items():
-                print("-", netdestination6_k)
-                if len(netdestination6_v) > 0:
-                    print_subconfig_list(netdestination6_v, "    ")
-            print("")
+                for netdestination6_k, netdestination6_v in problem["netdestination6"].items():
+                    print("-", netdestination6_k)
+                    if len(netdestination6_v) > 0:
+                        print_subconfig_list(netdestination6_v, "    ")
+                print("")
 
-        if len(problem["timerange"]) > 0:
-            print("The following Time Range configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["timerange"]) > 0:
+                print("MM Config Check: The following Time Range configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for timerange_k, timerange_v in problem["timerange"].items():
-                print("-", timerange_k)
-                if len(timerange_v) > 0:
-                    print_subconfig_list(timerange_v, "    ")
-            print("")
+                for timerange_k, timerange_v in problem["timerange"].items():
+                    print("-", timerange_k)
+                    if len(timerange_v) > 0:
+                        print_subconfig_list(timerange_v, "    ")
+                print("")
 
-        if len(problem["ifmap"]) > 0:
-            print("The following IF Map configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
+            if len(problem["ifmap"]) > 0:
+                print("MM Config Check: The following IF Map configs should be moved to parent configuration node \"" + i["controller-parent-path"] + "\" or higher:")
 
-            for ifmap_k, ifmap_v in problem["ifmap"].items():
-                print("-", ifmap_k)
-                if len(ifmap_v) > 0:
-                    print_subconfig_list(ifmap_v, "    ")
+                for ifmap_k, ifmap_v in problem["ifmap"].items():
+                    print("-", ifmap_k)
+                    if len(ifmap_v) > 0:
+                        print_subconfig_list(ifmap_v, "    ")
+                print("")
+        else:
+            print("MM Config Check: No problematic configurations exist at " + i["controller-path"])
             print("")
 
         # SSH login to individual controllers to run detailed CLI checks.
@@ -537,32 +562,69 @@ for k,v in controller_clusters.items():
         except paramiko.ssh_exception.SSHException as ssh_e:
             #Paramiko's exception handling does everything with SSHException which is bonkers.
             if "not found in known_hosts" in str(ssh_e).lower(): # Catch SSHException for unknown host key.
-                print(i["controller-ip"] + " is not a known SSH host, and insecure login is disallowed. Skipping SSH checks for this controller.")
+                print("SSH Check: " + i["controller-ip"] + " is not a known SSH host, and insecure login is disallowed. Skipping SSH checks for this controller.")
             elif "authentication failed" in str(ssh_e).lower(): # Catch SSHException for Auth Fail, in spite of an ACTUAL exception existing for Auth Failed
-                print("Authentication failed. SSH checks expect controller admin credentials (username & password) to be identical to that used for the MM.")
-                print("Skipping SSH checks for controller " + i["controller-ip"] + ".")
+                print("SSH Check: Authentication failed. SSH checks expect controller admin credentials (username & password) to be identical to that used for the MM.")
+                print("SSH Check: Skipping SSH checks for controller " + i["controller-ip"] + ".")
         except socket.error as sock_e:
-            print("Cannot connect to " + i["controller-ip"] + ". Skipping SSH checks for this controller.")
+            print("SSH Check: Cannot connect to " + i["controller-ip"] + ". Skipping SSH checks for this controller.")
         else:
             # Needs more exception handling here.
             controller_ssh.aos8invoke_shell()
-            problem["config-failure"] = controller_ssh.aos8execute("show configuration failure")
+            problem["ssh-config-failure"] = controller_ssh.aos8execute("show configuration failure")
             
             if len(controller_ssh.aos8execute("show profile-errors | exclude \"-----,Invalid Profiles,Profile  Error\"")) > 0:
-                problem["profile-errors"] = controller_ssh.aos8execute("show profile-errors")
-            
+                problem["ssh-profile-errors"] = controller_ssh.aos8execute("show profile-errors")
+
+            output_group_membership = controller_ssh.aos8execute("show lc-cluster group-membership | include self,peer")
+            if len(output_group_membership) > 0:
+                output_group_membership = output_group_membership.split("\n")
+
+                # For each line of the output...
+                for cluster_member in output_group_membership:
+                    # ... split along columns.
+                    cluster_member_split = re.split('\s+', cluster_member)
+                    # If self, check for isolation, if peer check for disconnection or not L2 connected
+                    if cluster_member_split[0].lower() == "self":
+                        if cluster_member_split[4].lower() == "isolated":
+                            problem["ssh-group-membership"]["self"] = cluster_member_split[4]
+                    elif cluster_member_split[0].lower() == "peer":
+                        if cluster_member_split[4].lower() == "disconnected":
+                            problem["ssh-group-membership"][cluster_member_split[1]] = cluster_member_split[4]
+                        elif cluster_member_split[3].lower() != "l2-connected":
+                            problem["ssh-group-membership"][cluster_member_split[1]] = cluster_member_split[3]
+            else:
+                problem["ssh-group-membership"]["no-output"] = True
+                
+            if len(controller_ssh.aos8execute("show lc-cluster vlan-probe status | include peer")) > 0:
+                pass
+                # validate each entry for missing VLANs
+            else:
+                pass
+                # flag zero peers
+
             controller_ssh.close()
 
-            if len(problem["config-failure"]) > 0:
-                print("Configuration failure found on this controller. Call TAC with results of \"show configuration failure\".")
-                print_subconfig_list(problem["config-failure"].split("\n"), "    ")
+            if len(problem["ssh-config-failure"]) > 0:
+                print("SSH Check: Configuration failure found on this controller. Call TAC with results of \"show configuration failure\".")
+                print_subconfig_list(problem["ssh-config-failure"].split("\n"), "    ")
             else:
-                print("No configuration failure found using \"show configuration failure\".")
+                print("SSH Check: No configuration failure found using \"show configuration failure\".")
             print("")
 
-            if len(problem["profile-errors"]) > 0:
-                print("Profile errors found on this controller. Please correct the following errors.")
-                print_subconfig_list(problem["profile-errors"].split("\n"), "    ")
+            if len(problem["ssh-profile-errors"]) > 0:
+                print("SSH Check: Profile errors found on this controller. Please correct the following errors.")
+                print_subconfig_list(problem["ssh-profile-errors"].split("\n"), "    ")
             else:
-                print("No profile errors found using \"show profile-errors\".")
+                print("SSH Check: No profile errors found using \"show profile-errors\".")
+            print("")
+            
+            if len(problem["ssh-group-membership"]) > 0 and problem["ssh-group-membership"].get("no-output") == None:
+                print("SSH Check: Cluster issues found on this controller. Please fix the following issues.")
+                print_subconfig_dict(problem["ssh-group-membership"], "- ")
+            elif problem["ssh-group-membership"].get("no-output") != None:
+                print("SSH Check: Could not get result from \"show lc-cluster group-membership\"")
+            else:
+                print("SSH Check: No cluster issues found using \"show lc-cluster group-membership\".")
+            
         print("")
