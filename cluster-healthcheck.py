@@ -343,6 +343,7 @@ for k,v in controller_clusters.items():
         problem["ssh-config-failure"] = ""
         problem["ssh-profile-errors"] = ""
         problem["ssh-group-membership"] = {}
+        problem["ssh-vlan-probe"] = {}
 
         ### Controller configs and subconfigs are examined line-by-line within this loop. All checks to be implemented here. ###
         for config_k, config_v in target_controller_config.items():
@@ -566,8 +567,10 @@ for k,v in controller_clusters.items():
             elif "authentication failed" in str(ssh_e).lower(): # Catch SSHException for Auth Fail, in spite of an ACTUAL exception existing for Auth Failed
                 print("SSH Check: Authentication failed. SSH checks expect controller admin credentials (username & password) to be identical to that used for the MM.")
                 print("SSH Check: Skipping SSH checks for controller " + i["controller-ip"] + ".")
+                print("")
         except socket.error as sock_e:
             print("SSH Check: Cannot connect to " + i["controller-ip"] + ". Skipping SSH checks for this controller.")
+            print("")
         else:
             # Needs more exception handling here.
             controller_ssh.aos8invoke_shell()
@@ -576,6 +579,7 @@ for k,v in controller_clusters.items():
             if len(controller_ssh.aos8execute("show profile-errors | exclude \"-----,Invalid Profiles,Profile  Error\"")) > 0:
                 problem["ssh-profile-errors"] = controller_ssh.aos8execute("show profile-errors")
 
+            # "show lc-cluster group-membership" check
             output_group_membership = controller_ssh.aos8execute("show lc-cluster group-membership | include self,peer")
             if len(output_group_membership) > 0:
                 output_group_membership = output_group_membership.split("\n")
@@ -595,36 +599,59 @@ for k,v in controller_clusters.items():
                             problem["ssh-group-membership"][cluster_member_split[1]] = cluster_member_split[3]
             else:
                 problem["ssh-group-membership"]["no-output"] = True
-                
-            if len(controller_ssh.aos8execute("show lc-cluster vlan-probe status | include peer")) > 0:
-                pass
+            
+            # "show lc-cluster vlan-probe status" check
+            output_vlan_probe = controller_ssh.aos8execute("show lc-cluster vlan-probe status | include peer")
+            if len(output_vlan_probe) > 0:
                 # validate each entry for missing VLANs
+                output_vlan_probe = output_vlan_probe.split("\n")
+                
+                # For each line of the output...
+                for peer in output_vlan_probe:
+                    # ... split along columns.
+                    peer_split = re.split('\s{2,}', peer)
+                    # If self, check for isolation, if peer check for disconnection or not L2 connected
+                    if peer_split[0].lower() == "peer":
+                        if peer_split[9].lower() == "n/a":
+                            problem["ssh-vlan-probe"][peer_split[1]] = "Not Available / Not Reachable / Not Found"
+                        elif peer_split[9].lower() != "l2 conn":
+                            problem["ssh-vlan-probe"][peer_split[1]] = peer_split[9] 
+                            if peer_split[8] != "0":
+                                problem["ssh-vlan-probe"][peer_split[1]] = problem["ssh-vlan-probe"][peer_split[1]] + " (Failed heartbeats on VLAN(s): " + peer_split[8] + ")"
             else:
-                pass
                 # flag zero peers
+                problem["ssh-vlan-probe"]["no-output"] = True
 
             controller_ssh.close()
 
             if len(problem["ssh-config-failure"]) > 0:
-                print("SSH Check: Configuration failure found on this controller. Call TAC with results of \"show configuration failure\".")
+                print("SSH Check: \"show configuration failure\" found issues on this controller. Call TAC with results of \"show configuration failure\".")
                 print_subconfig_list(problem["ssh-config-failure"].split("\n"), "    ")
             else:
-                print("SSH Check: No configuration failure found using \"show configuration failure\".")
+                print("SSH Check: No configuration failures found using \"show configuration failure\".")
             print("")
 
             if len(problem["ssh-profile-errors"]) > 0:
-                print("SSH Check: Profile errors found on this controller. Please correct the following errors.")
+                print("SSH Check: \"show profile-errors\" found errors on this controller. Please fix the following errors.")
                 print_subconfig_list(problem["ssh-profile-errors"].split("\n"), "    ")
             else:
                 print("SSH Check: No profile errors found using \"show profile-errors\".")
             print("")
             
             if len(problem["ssh-group-membership"]) > 0 and problem["ssh-group-membership"].get("no-output") == None:
-                print("SSH Check: Cluster issues found on this controller. Please fix the following issues.")
+                print("SSH Check: \"show lc-cluster group-membership\" found issues this controller. Please fix the following issues.")
                 print_subconfig_dict(problem["ssh-group-membership"], "- ")
             elif problem["ssh-group-membership"].get("no-output") != None:
-                print("SSH Check: Could not get result from \"show lc-cluster group-membership\"")
+                print("SSH Check: Failed to get any results using \"show lc-cluster group-membership\"")
             else:
                 print("SSH Check: No cluster issues found using \"show lc-cluster group-membership\".")
-            
-        print("")
+            print("")
+
+            if len(problem["ssh-vlan-probe"]) > 0 and problem["ssh-vlan-probe"].get("no-output") == None:
+                print("SSH Check: \"show lc-cluster vlan-probe status\" found issues on this controller. Please fix the following issues.")
+                print_subconfig_dict(problem["ssh-vlan-probe"], "- ")
+            elif problem["ssh-vlan-probe"].get("no-output") != None:
+                print("SSH Check: Failed to get any results using \"show lc-cluster vlan-probe status\"")
+            else:
+                print("SSH Check: No cluster issues found using \"show lc-cluster vlan-probe status\".")
+            print("")
